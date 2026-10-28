@@ -132,7 +132,7 @@ public ResponseEntity<SimpleTask> get(@PathVariable Long id) {
 
 El `findFirst()` vacío ya no lanza: se convierte en `404` sin cuerpo.
 
-### Resultado final
+### Resultado de la sesión 3
 
 ```text
 Tests run: 8, Failures: 0, Errors: 0, Skipped: 0
@@ -150,23 +150,101 @@ Comando:
 mvn test
 ```
 
+## Sesión 4 — Capa de servicios y DTO
+
+### Qué se añadió
+
+El proyecto no tenía `TaskService`, así que lo creé como parte de este avance:
+
+- `repository/TaskRepository`: interfaz que extiende `JpaRepository<Task, Long>`.
+- `dto/TaskResponseDTO`: record `(Long id, String title, boolean done)`.
+- `service/TaskService`: `createTask(CreateTaskDTO)` guarda la tarea y devuelve
+  el DTO de respuesta.
+- `TaskServiceTest`: prueba unitaria con el repositorio simulado con Mockito.
+
+`TaskService` lleva `@Service` y `@Transactional`. El test unitario construye el
+servicio con `@InjectMocks`, así que no arranca Spring, no usa Flyway ni toca H2.
+
+### Ciclo TDD — normalizar el título
+
+**Rojo.** Escribí `createStripsTitleEdges` antes de implementar la regla:
+
+```java
+when(repository.save(any(Task.class))).thenAnswer(call -> call.getArgument(0));
+
+var result = service.createTask(new CreateTaskDTO("  Repasar Spring Boot  "));
+
+assertThat(result.title()).isEqualTo("Repasar Spring Boot");
+```
+
+El servicio inicial guardaba `dto.title()` sin normalizar, por lo que el test
+falló:
+
+```text
+expected: "Repasar Spring Boot"
+ but was: "  Repasar Spring Boot  "
+```
+
+**Verde.** Cambié la creación a `new Task(dto.title().strip())`. El test pasó.
+
+**Caso complementario.** Añadí `createKeepsTitleAndStartsNotDone`: con
+`"Repasar Spring Boot"` el título se conserva y `done` es `false`.
+
+### Resultado de la sesión 4
+
+```text
+Tests run: 10, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+```
+
+- `TaskServiceTest`: 2 pruebas.
+- Se conservan las 8 pruebas anteriores sin cambios.
+
+### Estado de la checklist de la sesión 4
+
+| Punto | Estado | Evidencia |
+|---|---|---|
+| Cerrar `GET /v1/tasks/{id}` y `404` | Hecho | `getsExistingTaskById` y `missingTaskReturns404` |
+| Crear/localizar `TaskService` | Hecho | `service/TaskService.java`, `repository/TaskRepository.java` |
+| Regla del título con TDD | Hecho | Rojo `"  Repasar Spring Boot  "` → verde con `strip()` |
+| `createStripsTitleEdges` con repositorio mock | Hecho | `TaskServiceTest`; `save` devuelve su argumento |
+| Caso `"Repasar Spring Boot"` y `done=false` | Hecho | `createKeepsTitleAndStartsNotDone` |
+| Conservar las pruebas MVC | Hecho | `TaskControllerV1Test` (4) y `TaskControllerV2Test` (2) verdes |
+| Registrar rojo, cambio y verde en `aprendizaje.md` | Hecho | Este documento |
+| Commits propios | Pendiente | Los cambios de la sesión 4 están sin commitear |
+| Declaración de uso de IA | Preparada | `declaracion-uso-ia.md`; faltan datos y firma |
+
+`TaskService` está probado y listo, pero V1/V2 siguen usando sus listas en
+memoria: la sección 8 no pide conectarlo todavía a HTTP. Esa conexión queda como
+siguiente paso, no como un olvido.
+
+### Decisión: `completed` en la entidad, `done` en el DTO
+
+La entidad JPA mantiene el campo `completed` y la columna de la migración V1,
+mientras que el contrato público de las sesiones 3 y 4 usa `done`. `TaskService`
+traduce `saved.isCompleted()` a `TaskResponseDTO.done()`. No se modifica una
+migración ya aplicada ni se añade otra.
+
 ## Decisiones y responsabilidades
 
-- **V1/V2 son en memoria**: no usan JPA ni la tabla `tasks`; la persistencia se
-  incorporará en una sesión posterior. El `id` lo genera un `AtomicLong`.
-- **`done` frente a `completed`**: el contrato de los controladores de la
-  sesión 3 usa `done`, tal como indica el enunciado. La entidad JPA `Task`
-  conserva `completed` de la sesión 2; unificarlas es trabajo posterior.
+- **V1/V2 son en memoria**: no usan JPA ni la tabla `tasks`; el `id` lo genera
+  un `AtomicLong`. La persistencia ya existe en `TaskService`/`TaskRepository`,
+  pero todavía no está conectada a esas rutas.
+- **`done` frente a `completed`**: el contrato de los controladores usa `done`,
+  tal como indica el enunciado. La entidad JPA `Task` conserva `completed` de la
+  sesión 2 y el DTO traduce el valor a `done`.
 - **Sin validación ni OpenAPI todavía**: no se añaden dependencias que el
   avance no pide. `CreateTaskDTO` es un record simple.
-- **`404` sin cuerpo**: es el contrato acordado en esta sesión. El payload
+- **`404` sin cuerpo**: es el contrato acordado en la sesión 3. El payload
   común de errores llegará con el `@RestControllerAdvice`.
-- **Controlador**: rutas, códigos HTTP y cabeceras. Todavía no hay servicio ni
-  repositorio en V1/V2 porque las tareas viven en memoria.
+- **Controlador**: rutas, códigos HTTP y cabeceras. **Servicio**: reglas de
+  negocio, normalización del título y mapeo a DTO. **Repositorio**: acceso a
+  datos. V1/V2 siguen sin servicio porque las tareas viven en memoria.
 
 ## Pendiente / siguientes pasos
 
-1. Extraer la lógica a `TaskService` y usar DTOs de respuesta.
-2. Implementar con TDD que el título se guarde sin espacios en los extremos,
-   manteniendo `done = false`.
-3. Completar `autoria.md` y `declaracion-uso-ia.md` para la entrega individual.
+1. Conectar `TaskService` a un controlador (por ejemplo `/v3/tasks`) y cubrir el
+   alta con una prueba MVC que compruebe el título normalizado.
+2. Añadir validación de entrada y el tratamiento común de errores.
+3. Completar los datos personales y la firma en `autoria.md` y
+   `declaracion-uso-ia.md`, y hacer el commit de la sesión 4.
